@@ -6,32 +6,26 @@ const structureFieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 
 const numberConstraintKinds = new Set(['number', 'reference', 'enum']);
 const requiredCsvFields = ['id', 'name'];
 
-export function configToolPlugin(options = {}) {
+export function createConfigToolMiddleware(options = {}) {
     const context = createConfigToolContext(options);
-    return {
-        name: 'config-tool',
-        configureServer(server) {
-            server.middlewares.use(async (request, response, next) => {
-                const route = request.url?.split('?')[0];
-                if (route === '/__config-tool/api/config' && request.method === 'GET') {
-                    await handleRequest(response, () => readConfigSnapshot(context));
-                    return;
-                }
-
-                if (route === '/__config-tool/api/save' && request.method === 'POST') {
-                    await handleRequest(response, async () => {
-                        const payload = await readBody(request);
-                        return await saveConfigSnapshot(context, payload);
-                    });
-                    return;
-                }
-
-                next();
-            });
+    return async function configToolMiddleware(request, response, next) {
+        const route = request.url?.split('?')[0];
+        if (route === '/__config-tool/api/config' && request.method === 'GET') {
+            await handleRequest(response, () => readConfigSnapshot(context));
+            return;
         }
+
+        if (route === '/__config-tool/api/save' && request.method === 'POST') {
+            await handleRequest(response, async () => {
+                const payload = await readBody(request);
+                return await saveConfigSnapshot(context, payload);
+            });
+            return;
+        }
+
+        next?.();
     };
 }
-
 
 function createConfigToolContext(options) {
     const configRoot = path.resolve(options.configRoot ?? 'public/config');
@@ -477,7 +471,7 @@ function requiredFieldDescription(key) {
         return 'ID';
     }
     if (key === 'name') {
-        return '显示名称';
+        return '鏄剧ず鍚嶇О';
     }
     return undefined;
 }
