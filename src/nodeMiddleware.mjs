@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { generateConfigCodeFromDirectory } from './codegen.mjs';
 
 const fieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'json', 'json[]']);
 const structureFieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]']);
@@ -23,6 +24,14 @@ export function createConfigToolMiddleware(options = {}) {
             return;
         }
 
+        if (route === '/__config-tool/api/generate' && request.method === 'POST') {
+            await handleRequest(response, async () => {
+                const payload = await readBody(request);
+                return await generateConfigCodeFromDirectory(codegenOptionsForRequest(context, payload));
+            });
+            return;
+        }
+
         next?.();
     };
 }
@@ -32,7 +41,17 @@ function createConfigToolContext(options) {
     return {
         configRoot,
         manifestPath: path.join(configRoot, 'manifest.json'),
-        schemaPath: path.join(configRoot, 'schema.json')
+        schemaPath: path.join(configRoot, 'schema.json'),
+        codegen: options.codegen && typeof options.codegen === 'object' ? { ...options.codegen } : {}
+    };
+}
+
+function codegenOptionsForRequest(context, payload) {
+    const requestOptions = payload?.options && typeof payload.options === 'object' ? payload.options : payload;
+    return {
+        ...context.codegen,
+        ...(requestOptions && typeof requestOptions === 'object' ? requestOptions : {}),
+        inputRoot: requestOptions?.inputRoot ?? context.codegen.inputRoot ?? context.configRoot
     };
 }
 
@@ -471,7 +490,7 @@ function requiredFieldDescription(key) {
         return 'ID';
     }
     if (key === 'name') {
-        return '鏄剧ず鍚嶇О';
+        return '\u663e\u793a\u540d\u79f0';
     }
     return undefined;
 }
@@ -626,4 +645,3 @@ function arrayValue(value) {
 function stringValue(value) {
     return value === undefined || value === null ? '' : String(value);
 }
-

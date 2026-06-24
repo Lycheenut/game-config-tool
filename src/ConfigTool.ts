@@ -168,11 +168,27 @@ type SelectionSnapshot =
 export interface ConfigRepository {
     load(): Promise<ConfigToolPayload>;
     save(request: ConfigToolSaveRequest): Promise<ConfigToolPayload>;
+    generateCode?(options?: ConfigToolCodegenRequestOptions): Promise<ConfigToolCodegenResult>;
 }
 
 export interface ConfigToolOptions {
     container: HTMLElement;
     path?: string;
+    codegen?: boolean | ConfigToolCodegenRequestOptions;
+}
+
+export interface ConfigToolCodegenRequestOptions {
+    inputRoot?: string;
+    outputRoot?: string;
+    outputFile?: string;
+    repositoryName?: string;
+    staticBaseUrl?: string;
+}
+
+export interface ConfigToolCodegenResult {
+    inputRoot: string;
+    outputRoot: string;
+    files: string[];
 }
 
 export interface ConfigToolHandle {
@@ -186,6 +202,7 @@ export type MountConfigToolOptions = Omit<ConfigToolOptions, 'container'>;
 export interface HttpConfigRepositoryOptions {
     apiBaseUrl?: string;
     staticBaseUrl?: string;
+    codegen?: ConfigToolCodegenRequestOptions;
 }
 
 export interface StaticConfigRepositoryOptions {
@@ -195,10 +212,12 @@ export interface StaticConfigRepositoryOptions {
 let nextGeneratedId = 1;
 
 export function newConfigTool(options: ConfigToolOptions): ConfigToolHandle {
+    const codegenOptions = normalizeCodegenOptions(options.codegen);
     const repository = createHttpConfigRepository({
-        staticBaseUrl: options.path
+        staticBaseUrl: options.path,
+        codegen: codegenOptions
     });
-    const tool = new ConfigTool(options.container, repository);
+    const tool = new ConfigTool(options.container, repository, options.codegen !== undefined && options.codegen !== false);
     return {
         load: () => tool.load(),
         refresh: () => tool.load(),
@@ -219,6 +238,9 @@ function createHttpConfigRepository(options: HttpConfigRepositoryOptions = {}): 
         },
         async save(request) {
             return await postConfigPayload(joinUrl(apiBaseUrl, 'save'), request);
+        },
+        async generateCode() {
+            return await postCodegenRequest(joinUrl(apiBaseUrl, 'generate'), options.codegen ?? {});
         }
     };
 }
@@ -229,8 +251,21 @@ function createReadonlyStaticConfigRepository(options: StaticConfigRepositoryOpt
         load: () => loadStaticPayload(staticBaseUrl),
         async save() {
             throw new Error('Readonly config repository cannot save.');
+        },
+        async generateCode() {
+            throw new Error('Readonly config repository cannot generate code.');
         }
     };
+}
+
+function normalizeCodegenOptions(options: boolean | ConfigToolCodegenRequestOptions | undefined): ConfigToolCodegenRequestOptions | undefined {
+    if (options === undefined || options === false) {
+        return undefined;
+    }
+    if (options === true) {
+        return {};
+    }
+    return options;
 }
 
 class ConfigTool {
@@ -247,7 +282,11 @@ class ConfigTool {
     private loading = true;
     private status = '正在加载配置。';
 
-    constructor(private readonly container: HTMLElement, private readonly repository: ConfigRepository) {
+    constructor(
+        private readonly container: HTMLElement,
+        private readonly repository: ConfigRepository,
+        private readonly codegenEnabled: boolean
+    ) {
         this.render();
     }
 
@@ -388,7 +427,13 @@ class ConfigTool {
         const actions = element('div', 'config-tool__actions');
         const reloadButton = button('重新加载', 'button button--secondary button--header', () => void this.load());
         reloadButton.disabled = this.loading;
-        actions.append(reloadButton, link('开发菜单', '/dev'));
+        actions.append(reloadButton);
+        if (this.codegenEnabled) {
+            const codegenButton = button('生成代码', 'button button--secondary button--header', () => void this.generateCode());
+            codegenButton.disabled = this.loading || !this.writable;
+            actions.append(codegenButton);
+        }
+        actions.append(link('开发菜单', '/dev'));
         header.append(titleBlock, actions);
         return header;
     }
@@ -1105,6 +1150,39 @@ class ConfigTool {
         return table.fields
             .filter((field) => savedFieldKeys.has(field.key))
             .some((field) => (row[field.key] ?? '') !== (savedRow[field.key] ?? ''));
+    }
+
+    private hasUnsavedChanges(): boolean {
+        return this.tables.length !== Object.keys(this.schema.tables).length
+            || this.constants.length !== Object.keys(this.schema.constants).length
+            || this.structures.length !== Object.keys(this.schema.structures).length
+            || this.enums.length !== Object.keys(this.schema.enums).length
+            || this.tables.some((table) => !table.savedModuleKey
+                || this.hasUnsavedTableDefinition(table)
+                || table.rows.length !== table.savedRows.length
+                || table.rows.some((_, rowIndex) => this.isTableRowDirty(table, rowIndex)))
+            || this.constants.some((constant) => !constant.savedModuleKey
+                || constant.moduleKey !== constant.savedModuleKey
+                || constant.description !== constant.savedDescription
+                || constant.text !== constant.savedText)
+            || this.structures.some((structure) => this.isStructureDirty(structure))
+            || this.enums.some((enumSchema) => this.isEnumDirty(enumSchema));
+    }
+
+    private isStructureDirty(structure: StructureState): boolean {
+        const savedStructure = this.schema.structures[structure.key];
+        return !savedStructure
+            || structure.description !== savedStructure.description
+            || structure.fields.length !== savedStructure.fields.length
+            || structure.fields.some((field, fieldIndex) => !sameStructureFieldSchema(field, savedStructure.fields[fieldIndex]));
+    }
+
+    private isEnumDirty(enumSchema: EnumState): boolean {
+        const savedEnum = this.schema.enums[enumSchema.key];
+        return !savedEnum
+            || enumSchema.description !== savedEnum.description
+            || enumSchema.values.length !== savedEnum.values.length
+            || enumSchema.values.some((enumValue, valueIndex) => !sameEnumValueSchema(enumValue, savedEnum.values[valueIndex]));
     }
 
     private createFieldKeyInput(table: CsvTableState, field: FieldSchema): HTMLInputElement {
@@ -2438,6 +2516,38 @@ class ConfigTool {
         };
     }
 
+    private async generateCode(): Promise<void> {
+        if (!this.writable) {
+            this.status = '只读模式，无法生成代码。';
+            this.render();
+            return;
+        }
+        if (!this.repository.generateCode) {
+            this.status = '当前配置仓库不支持代码生成。';
+            this.render();
+            return;
+        }
+        if (this.hasUnsavedChanges()) {
+            this.status = '存在未保存修改，请先保存后再生成代码。';
+            this.render();
+            return;
+        }
+
+        this.loading = true;
+        this.status = '正在生成代码。';
+        this.render();
+
+        try {
+            const result = await this.repository.generateCode();
+            this.status = result.files.length > 0 ? '代码已生成：' + result.files.join(', ') : '代码已生成。';
+        } catch (error) {
+            this.status = '代码生成失败：' + errorMessage(error);
+        } finally {
+            this.loading = false;
+            this.render();
+        }
+    }
+
     private async save(successStatus = '配置已保存。', validationTarget: SaveValidationTarget = { kind: 'none' }): Promise<void> {
         if (!this.writable) {
             this.status = '只读模式，无法写入配置文件。';
@@ -2932,6 +3042,19 @@ async function postConfigPayload(saveUrl: string, request: ConfigToolSaveRequest
         throw new Error('error' in payload && payload.error ? payload.error : '保存失败。');
     }
     return payload as ConfigToolPayload;
+}
+
+async function postCodegenRequest(generateUrl: string, options: ConfigToolCodegenRequestOptions): Promise<ConfigToolCodegenResult> {
+    const response = await fetch(generateUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ options })
+    });
+    const payload = await response.json() as ConfigToolCodegenResult | { error?: string };
+    if (!response.ok) {
+        throw new Error('error' in payload && payload.error ? payload.error : '代码生成失败。');
+    }
+    return payload as ConfigToolCodegenResult;
 }
 
 function joinUrl(baseUrl: string, path: string): string {

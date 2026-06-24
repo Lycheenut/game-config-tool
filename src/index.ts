@@ -6,6 +6,8 @@ export type {
     ConfigModuleTree,
     ConfigRepository,
     ConfigSchema,
+    ConfigToolCodegenRequestOptions,
+    ConfigToolCodegenResult,
     ConfigToolHandle,
     ConfigToolOptions,
     ConfigToolPayload,

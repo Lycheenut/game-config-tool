@@ -6,7 +6,8 @@ The package provides:
 
 - `newConfigTool` for mounting the config editor into a DOM container.
 - `createConfigToolMiddleware` for loading and saving config files from any Node-based development server.
-- TypeScript types for config payloads, schemas, fields, enums, structures, and save requests.
+- `game-config-codegen` for generating TypeScript config readers and enum definitions.
+- TypeScript types for config payloads, schemas, fields, enums, structures, save requests, and code generation requests.
 
 ## Installation
 
@@ -30,7 +31,10 @@ npm install @lycheenut/game-config-tool
 import { createConfigToolMiddleware } from '@lycheenut/game-config-tool/node';
 
 const configToolMiddleware = createConfigToolMiddleware({
-    configRoot: 'public/config'
+    configRoot: 'public/config',
+    codegen: {
+        outputRoot: 'src/generated/config'
+    }
 });
 ```
 
@@ -38,6 +42,7 @@ const configToolMiddleware = createConfigToolMiddleware({
 
 - `GET /__config-tool/api/config` to load the current config snapshot.
 - `POST /__config-tool/api/save` to save the edited snapshot.
+- `POST /__config-tool/api/generate` to generate TypeScript config readers when codegen options are provided.
 
 ### 2. Mount the editor
 
@@ -52,13 +57,16 @@ if (!container) {
 
 const configTool = newConfigTool({
     container,
-    path: '/config'
+    path: '/config',
+    codegen: true
 });
 
 await configTool.load();
 ```
 
 When the development API is unavailable, the editor falls back to readonly static loading from `path` or `/config`.
+
+Set `codegen` to `true` to show the web `生成代码` action and use middleware codegen options, or pass an object such as `{ outputRoot: 'src/generated/config' }` to send request-specific options.
 
 ## Server Integration
 
@@ -160,6 +168,58 @@ JSON files are edited as constant payloads and saved with formatted JSON.
 }
 ```
 
+## Code Generation
+
+The generator reads `manifest.json`, `schema.json`, CSV tables, and JSON constants, then writes one TypeScript file. The generated file includes:
+
+- TypeScript interfaces for CSV table rows and custom structures.
+- TypeScript type aliases for JSON constants inferred from their current JSON value.
+- TypeScript `enum` definitions for custom enums, with comments from enum and value descriptions.
+- A repository class with `load()`, table list/by-id readers, required by-id readers, and constant readers.
+
+### Web trigger
+
+Configure local paths on the middleware, then enable the button in the browser editor:
+
+```js
+createConfigToolMiddleware({
+    configRoot: 'public/config',
+    codegen: {
+        inputRoot: 'public/config',
+        outputRoot: 'src/generated/config',
+        outputFile: 'index.ts'
+    }
+});
+```
+
+```ts
+newConfigTool({
+    container,
+    path: '/config',
+    codegen: true
+});
+```
+
+The web action reads the configured input directory from disk. If the editor has unsaved changes, save first so generated code matches the files.
+
+### CLI trigger
+
+```sh
+game-config-codegen --input public/config --output src/generated/config
+```
+
+Use `--output src/generated/config/index.ts` to write a specific file, or `--file config.ts` with an output directory. `--base-url` changes the generated loader's default runtime URL.
+
+Example generated usage:
+
+```ts
+import { loadConfig } from './generated/config';
+
+const config = await loadConfig({ baseUrl: '/config' });
+const item = config.requireItemsById(1);
+const gameConstants = config.getGameConstants();
+```
+
 ## API
 
 ### `newConfigTool(options)`
@@ -181,6 +241,7 @@ Options:
 | --- | --- | --- | --- |
 | `container` | `HTMLElement` | Yes | DOM element that receives the config editor UI. |
 | `path` | `string` | No | Static config base URL used by readonly fallback loading. Defaults to `/config`. |
+| `codegen` | `boolean \| ConfigToolCodegenRequestOptions` | No | Shows the web codegen action. `true` uses middleware options; an object is posted to the generate endpoint. |
 
 Handle methods:
 
@@ -207,6 +268,7 @@ Options:
 | Name | Type | Required | Description |
 | --- | --- | --- | --- |
 | `configRoot` | `string` | No | Directory containing `manifest.json`, `schema.json`, and config files. Defaults to `public/config`. |
+| `codegen` | `ConfigToolCodegenRequestOptions` | No | Default codegen input/output options for `POST /__config-tool/api/generate`. `inputRoot` defaults to `configRoot`; `outputRoot` is required before generating. |
 
 Middleware signature:
 
@@ -221,6 +283,8 @@ The root module exports the following TypeScript types:
 - `ConfigModuleTree`
 - `ConfigRepository`
 - `ConfigSchema`
+- `ConfigToolCodegenRequestOptions`
+- `ConfigToolCodegenResult`
 - `ConfigToolHandle`
 - `ConfigToolOptions`
 - `ConfigToolPayload`

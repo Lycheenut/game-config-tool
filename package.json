@@ -5,12 +5,16 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./node": "./src/nodeMiddleware.mjs"
+    "./node": "./src/nodeMiddleware.mjs",
+    "./codegen": "./src/codegen.mjs"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "typescript": "~5.7.2"
+  },
+  "bin": {
+    "game-config-codegen": "./src/codegenCli.mjs"
   }
 }
