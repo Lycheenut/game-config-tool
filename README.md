@@ -170,12 +170,13 @@ JSON files are edited as constant payloads and saved with formatted JSON.
 
 ## Code Generation
 
-The generator reads `manifest.json`, `schema.json`, CSV tables, and JSON constants, then writes one TypeScript file. The generated file includes:
+The generator reads `manifest.json`, `schema.json`, CSV tables, and JSON constants, then writes a TypeScript module set. The generated files include:
 
-- TypeScript interfaces for CSV table rows and custom structures.
-- TypeScript type aliases for JSON constants inferred from their current JSON value.
-- TypeScript `enum` definitions for custom enums, with comments from enum and value descriptions.
-- A repository class with `load()`, table list/by-id readers, required by-id readers, and constant readers.
+- `enum.ts` for custom `enum` definitions, with comments from enum and value descriptions.
+- `structures.ts` for custom structure interfaces.
+- One module per CSV table with the row interface, table loader, and table getter.
+- `constants.ts` with JSON constant type aliases, a generic constant loader, and per-constant getters.
+- An entry module with a repository class, `loadConfig()`, and re-exports for the generated modules.
 
 ### Web trigger
 
@@ -208,7 +209,7 @@ The web action reads the configured input directory from disk. If the editor has
 game-config-codegen --input public/config --output src/generated/config
 ```
 
-Use `--output src/generated/config/index.ts` to write a specific file, or `--file config.ts` with an output directory. `--base-url` changes the generated loader's default runtime URL.
+Use `--output src/generated/config/index.ts` to choose the entry file path; sibling modules such as `enum.ts`, `constants.ts`, and table files are generated next to it. `--file config.ts` changes the entry file name when `--output` is a directory. `--base-url` changes the generated loader's default runtime URL.
 
 Example generated usage:
 

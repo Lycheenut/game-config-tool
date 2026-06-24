@@ -104,7 +104,7 @@ function printHelp() {
 Options:
   -i, --input <path>           Directory containing manifest.json and schema.json.
   -o, --output <path>          Output directory, or a .ts output file path.
-      --file <name.ts>         Output file name when --output is a directory. Defaults to index.ts.
+      --file <name.ts>         Entry file name when --output is a directory. Defaults to index.ts.
       --base-url <url>         Default runtime base URL for generated loaders. Defaults to /config.
       --repository-name <name> Generated repository class name. Defaults to GeneratedConfigRepository.
   -h, --help                   Show this help.
