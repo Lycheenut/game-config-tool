@@ -918,7 +918,7 @@ function ensureRequiredFields(fields) {
         missingFields.push({ key: 'id', type: 'number', description: 'ID' });
     }
     if (!keys.has('name')) {
-        missingFields.push({ key: 'name', type: 'string', description: '显示名称' });
+        missingFields.push({ key: 'name', type: 'string', description: '\u663e\u793a\u540d\u79f0' });
     }
     return missingFields.concat(normalizedFields);
 }
@@ -928,7 +928,7 @@ function normalizeRequiredField(field) {
         return { key: field.key, type: 'number', description: 'ID' };
     }
     if (field.key === 'name') {
-        return { key: field.key, type: 'string', description: '显示名称' };
+        return { key: field.key, type: 'string', description: '\u663e\u793a\u540d\u79f0' };
     }
     return field;
 }
