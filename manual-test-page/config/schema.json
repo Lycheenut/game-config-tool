@@ -1,0 +1,104 @@
+{
+    "version": 1,
+    "tables": {
+        "items": {
+            "path": "items.csv",
+            "fields": [
+                {
+                    "key": "id",
+                    "type": "number",
+                    "description": "ID"
+                },
+                {
+                    "key": "name",
+                    "type": "string",
+                    "description": "Display name"
+                },
+                {
+                    "key": "rarity",
+                    "type": "number",
+                    "description": "Rarity tier",
+                    "numberConstraint": {
+                        "kind": "enum",
+                        "enum": "Rarity"
+                    }
+                },
+                {
+                    "key": "price",
+                    "type": "number",
+                    "description": "Shop price",
+                    "numberConstraint": {
+                        "kind": "number",
+                        "min": 0,
+                        "max": 9999
+                    }
+                },
+                {
+                    "key": "tags",
+                    "type": "string[]",
+                    "description": "Search tags"
+                },
+                {
+                    "key": "stats",
+                    "type": "json",
+                    "description": "Combat stats",
+                    "structure": "ItemStats"
+                }
+            ]
+        }
+    },
+    "constants": {
+        "game.settings": {
+            "path": "game/settings.json",
+            "description": "Runtime tuning values"
+        }
+    },
+    "structures": {
+        "ItemStats": {
+            "description": "Stats embedded in item rows",
+            "fields": [
+                {
+                    "key": "attack",
+                    "type": "number",
+                    "description": "Attack bonus",
+                    "numberConstraint": {
+                        "kind": "number",
+                        "min": 0
+                    }
+                },
+                {
+                    "key": "speed",
+                    "type": "number",
+                    "description": "Attack speed"
+                },
+                {
+                    "key": "unique",
+                    "type": "boolean",
+                    "description": "Unique item"
+                }
+            ]
+        }
+    },
+    "enums": {
+        "Rarity": {
+            "description": "Item rarity",
+            "values": [
+                {
+                    "key": "Common",
+                    "value": 1,
+                    "description": "Common"
+                },
+                {
+                    "key": "Rare",
+                    "value": 2,
+                    "description": "Rare"
+                },
+                {
+                    "key": "Epic",
+                    "value": 3,
+                    "description": "Epic"
+                }
+            ]
+        }
+    }
+}

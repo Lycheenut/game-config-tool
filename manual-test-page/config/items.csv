@@ -1,0 +1,3 @@
+id,name,rarity,price,tags,stats
+1,Iron Sword,1,100,"[""melee"",""starter""]","{""attack"":8,""speed"":1.2,""unique"":false}"
+2,Crystal Staff,3,450,"[""magic"",""rare""]","{""attack"":18,""speed"":0.8,""unique"":true}"

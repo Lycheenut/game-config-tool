@@ -1,0 +1,12 @@
+{
+    "maxLevel": 60,
+    "startingGold": 300,
+    "dailyReward": {
+        "currency": "gold",
+        "amount": 120
+    },
+    "featureFlags": {
+        "arena": true,
+        "guild": false
+    }
+}

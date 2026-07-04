@@ -1,0 +1,8 @@
+{
+    "modules": {
+        "items": "items.csv",
+        "game": {
+            "settings": "game/settings.json"
+        }
+    }
+}

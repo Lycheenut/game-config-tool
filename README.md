@@ -47,6 +47,7 @@ const configToolMiddleware = createConfigToolMiddleware({
 ### 2. Mount the editor
 
 ```ts
+import '@lycheenut/game-config-tool/style.css';
 import { newConfigTool } from '@lycheenut/game-config-tool';
 
 const container = document.getElementById('config-tool');
@@ -319,6 +320,14 @@ Run type checking:
 ```sh
 npm run typecheck
 ```
+
+Run the manual browser test page:
+
+```sh
+npm run test:page
+```
+
+The page is served from `manual-test-page/`, uses the package default `style.css`, and is excluded from npm package contents.
 
 ## Publishing
 

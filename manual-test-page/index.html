@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/style.css">
+    <title>Config Tool Test Page</title>
+</head>
+<body>
+    <div id="config-tool"></div>
+    <script type="module">
+        import { newConfigTool } from '/src/ConfigTool.js';
+
+        const container = document.getElementById('config-tool');
+        const handle = newConfigTool({
+            container,
+            path: '/config'
+        });
+
+        await handle.load();
+    </script>
+</body>
+</html>

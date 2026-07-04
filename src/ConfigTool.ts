@@ -1870,8 +1870,10 @@ class ConfigTool {
 
         structure.fields.forEach((field) => {
             const row = element('div', 'config-structure-field');
+            const info = element('div', 'config-structure-field__info');
             const label = element('span', 'config-structure-field__label', field.key);
             const meta = element('span', 'config-structure-field__meta', field.description ? `${field.type} · ${field.description}` : field.type);
+            info.append(label, meta);
             let editor: HTMLElement;
             if (isArrayField(field.type)) {
                 editor = this.createArrayEditor(
@@ -1899,7 +1901,7 @@ class ConfigTool {
                     onChange(currentValue);
                 });
             }
-            row.append(label, meta, editor);
+            row.append(info, editor);
             wrapper.append(row);
         });
         return wrapper;

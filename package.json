@@ -1,16 +1,19 @@
 {
   "name": "@lycheenut/game-config-tool",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
+  "style": "./style.css",
   "exports": {
     ".": "./src/index.ts",
+    "./style.css": "./style.css",
     "./node": "./src/nodeMiddleware.mjs",
     "./codegen": "./src/codegen.mjs"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test"
+    "test": "node --test",
+    "test:page": "node manual-test-page/server.mjs"
   },
   "devDependencies": {
     "typescript": "~5.7.2"
