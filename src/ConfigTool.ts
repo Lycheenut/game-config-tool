@@ -922,7 +922,7 @@ class ConfigTool {
             row.append(
                 element('td', 'config-data-table__index', String(fieldIndex + 1)),
                 element('td', '', field.key),
-                element('td', '', field.type),
+                element('td', '', this.fieldTypeLabel(field)),
                 element('td', '', field.description)
             );
             tbody.append(row);
@@ -1638,7 +1638,7 @@ class ConfigTool {
         table.fields.forEach((field) => {
             const fieldWrapper = element('div', 'config-row-field');
             const label = element('span', 'config-row-field__label', field.key);
-            const typeLabel = field.structure ? `${field.type}<${field.structure}>` : field.type;
+            const typeLabel = field.structure ? `${field.type}<${field.structure}>` : this.fieldTypeLabel(field);
             const meta = element('span', 'config-row-field__meta', field.description ? `${typeLabel} · ${field.description}` : typeLabel);
             fieldWrapper.append(label, meta, this.createCellEditor(row, field));
             fields.append(fieldWrapper);
@@ -1872,7 +1872,8 @@ class ConfigTool {
             const row = element('div', 'config-structure-field');
             const info = element('div', 'config-structure-field__info');
             const label = element('span', 'config-structure-field__label', field.key);
-            const meta = element('span', 'config-structure-field__meta', field.description ? `${field.type} · ${field.description}` : field.type);
+            const typeLabel = this.fieldTypeLabel(field);
+            const meta = element('span', 'config-structure-field__meta', field.description ? `${typeLabel} · ${field.description}` : typeLabel);
             info.append(label, meta);
             let editor: HTMLElement;
             if (isArrayField(field.type)) {
@@ -2976,7 +2977,16 @@ class ConfigTool {
             || this.structures.some((structure) => structure.fields.some((field) => field.numberConstraint?.kind === 'enum' && field.numberConstraint.enum === enumKey));
     }
 
+    private fieldTypeLabel(field: FieldSchema | StructureFieldSchema): string {
+        return this.numberEnumTypeLabel(field) ?? field.type;
+    }
+
     private readonlyFieldTypeLabel(field: FieldSchema): string {
+        const enumTypeLabel = this.numberEnumTypeLabel(field);
+        if (enumTypeLabel) {
+            return enumTypeLabel;
+        }
+
         if (!isStructuredField(field)) {
             return field.type;
         }
@@ -2987,6 +2997,14 @@ class ConfigTool {
         }
 
         return field.type === 'json[]' ? 'JSON[]' : 'JSON';
+    }
+
+    private numberEnumTypeLabel(field: FieldSchema | StructureFieldSchema): string | undefined {
+        const constraint = normalizedNumberConstraint(field.type, field.numberConstraint);
+        if (constraint?.kind !== 'enum' || !constraint.enum) {
+            return undefined;
+        }
+        return isArrayField(field.type) ? `${field.type}[] (${constraint.enum}[])` : `${field.type} (${constraint.enum})`;
     }
 }
 
@@ -3363,7 +3381,7 @@ function enumValueOptionLabel(enumValue: EnumValueSchema, fallback: string): str
 
 function referenceRowOptionLabel(row: CsvRow, id: string): string {
     const key = row.key?.trim() || id;
-    const description = row.desc?.trim() || row.description?.trim() || row.name?.trim();
+    const description = row.name?.trim();
     return descriptionKeyLabel(description, key, id);
 }
 
