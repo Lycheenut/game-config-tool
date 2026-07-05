@@ -3489,8 +3489,8 @@ function parseCsv(text: string): string[][] {
     return rows;
 }
 
-function withFieldDefaults(row: CsvRow, fields: FieldSchema[]): CsvRow {
-    return Object.fromEntries(fields.map((field) => [field.key, row[field.key] ?? '']));
+function withFieldDefaults(row: Record<string, unknown>, fields: FieldSchema[]): CsvRow {
+    return Object.fromEntries(fields.map((field) => [field.key, stringFromUnknown(row[field.key])]));
 }
 
 function ensureRequiredFields(fields: FieldSchema[]): FieldSchema[] {
@@ -3920,7 +3920,7 @@ function valueToBasicString(value: unknown, type: BasicType): string {
     if (type === 'number') {
         return value === undefined || value === null || value === '' ? '' : String(value);
     }
-    return value === undefined || value === null ? '' : String(value);
+    return stringFromUnknown(value);
 }
 
 function basicStringToValue(value: string, type: BasicType): string | number | boolean {
@@ -3941,7 +3941,21 @@ function unknownToBasicValue(value: unknown, type: BasicType): string | number |
         const numberValue = Number(value);
         return Number.isFinite(numberValue) ? numberValue : 0;
     }
-    return value === undefined || value === null ? '' : String(value);
+    return stringFromUnknown(value);
+}
+
+function stringFromUnknown(value: unknown): string {
+    if (value === undefined || value === null) {
+        return '';
+    }
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return String(value);
+        }
+    }
+    return String(value);
 }
 
 function validateNumberConstraintValue(
