@@ -174,6 +174,7 @@ type SelectionSnapshot =
         key: string;
         selectedValueIndex?: number;
     };
+type ScrollPosition = { top: number; left: number };
 
 export interface ConfigRepository {
     load(): Promise<ConfigToolPayload>;
@@ -423,11 +424,42 @@ class ConfigTool {
     }
 
     private render(): void {
+        const scrollPositions = this.captureScrollPositions();
         this.container.replaceChildren(this.createView());
+        this.restoreScrollPositions(scrollPositions);
     }
 
     private scheduleRender(): void {
         window.setTimeout(() => this.render(), 0);
+    }
+
+    private captureScrollPositions(): Map<string, ScrollPosition> {
+        const positions = new Map<string, ScrollPosition>();
+        this.container.querySelectorAll<HTMLElement>('[data-scroll-key]').forEach((node) => {
+            const key = node.dataset.scrollKey;
+            if (!key) {
+                return;
+            }
+            positions.set(key, { top: node.scrollTop, left: node.scrollLeft });
+        });
+        return positions;
+    }
+
+    private restoreScrollPositions(positions: Map<string, ScrollPosition>): void {
+        this.container.querySelectorAll<HTMLElement>('[data-scroll-key]').forEach((node) => {
+            const key = node.dataset.scrollKey;
+            const position = key ? positions.get(key) : undefined;
+            if (!position) {
+                return;
+            }
+            node.scrollTop = position.top;
+            node.scrollLeft = position.left;
+        });
+    }
+
+    private keepScroll<T extends HTMLElement>(node: T, key: string): T {
+        node.dataset.scrollKey = key;
+        return node;
     }
 
     private createView(): HTMLElement {
@@ -511,7 +543,7 @@ class ConfigTool {
         const section = element('section', 'config-nav');
         const header = element('div', 'config-nav__header');
         header.append(element('h2', 'config-nav__title', title), button(actionText, 'button button--ghost config-nav__add', action));
-        const list = element('div', 'config-nav__list');
+        const list = this.keepScroll(element('div', 'config-nav__list'), `section:${kind}`);
 
         if (items.length === 0) {
             list.append(element('div', 'config-nav__empty', '暂无配置。'));
@@ -741,7 +773,7 @@ class ConfigTool {
         header.append(element('h3', 'config-panel__title', `字段 · ${table.fields.length}`));
         panel.append(header);
 
-        const editor = element('div', 'config-data-editor');
+        const editor = this.keepScroll(element('div', 'config-data-editor'), `table:${table.id}:schema:editor`);
         editor.append(
             this.createFieldList(table),
             this.createFieldWorkspace(table),
@@ -753,7 +785,7 @@ class ConfigTool {
 
     private createFieldList(table: CsvTableState): HTMLElement {
         const sidebar = element('aside', 'config-row-nav');
-        const list = element('div', 'config-row-nav__list');
+        const list = this.keepScroll(element('div', 'config-row-nav__list'), `table:${table.id}:fields:list`);
         table.fields.forEach((field, fieldIndex) => {
             const item = element('div', 'config-row-nav__item');
             const dirty = this.isTableFieldDirty(table, fieldIndex);
@@ -799,7 +831,7 @@ class ConfigTool {
     }
 
     private createReadonlyFieldsTable(table: CsvTableState): HTMLElement {
-        const scroll = element('div', 'config-data-scroll');
+        const scroll = this.keepScroll(element('div', 'config-data-scroll'), `table:${table.id}:fields:overview`);
         const dataTable = element('table', 'config-data-table');
         const thead = element('thead');
         const headRow = element('tr');
@@ -857,7 +889,7 @@ class ConfigTool {
             fieldControls.splice(2, 0, this.createEditorFormField('结构', '', this.createFieldStructureSelect(field)));
         }
 
-        const fields = element('div', 'config-row-fields');
+        const fields = this.keepScroll(element('div', 'config-row-fields'), `table:${table.id}:field:${fieldIndex}:detail`);
         fields.append(...fieldControls);
         editor.append(header, fields);
         return editor;
@@ -870,7 +902,7 @@ class ConfigTool {
         header.append(element('h3', 'config-panel__title', `结构字段 · ${structure.fields.length}`));
         panel.append(header);
 
-        const editor = element('div', 'config-data-editor');
+        const editor = this.keepScroll(element('div', 'config-data-editor'), `structure:${structure.id}:editor`);
         editor.append(
             this.createStructureFieldList(structure),
             this.createStructureFieldWorkspace(structure),
@@ -882,7 +914,7 @@ class ConfigTool {
 
     private createStructureFieldList(structure: StructureState): HTMLElement {
         const sidebar = element('aside', 'config-row-nav');
-        const list = element('div', 'config-row-nav__list');
+        const list = this.keepScroll(element('div', 'config-row-nav__list'), `structure:${structure.id}:fields:list`);
         if (structure.fields.length === 0) {
             list.append(element('div', 'config-row-nav__empty', '暂无结构字段。'));
         }
@@ -928,7 +960,7 @@ class ConfigTool {
     }
 
     private createReadonlyStructureFieldsTable(structure: StructureState): HTMLElement {
-        const scroll = element('div', 'config-data-scroll');
+        const scroll = this.keepScroll(element('div', 'config-data-scroll'), `structure:${structure.id}:overview`);
         const dataTable = element('table', 'config-data-table');
         const thead = element('thead');
         const headRow = element('tr');
@@ -964,7 +996,7 @@ class ConfigTool {
         const header = element('div', 'config-row-editor__header');
         header.append(element('h3', 'config-row-editor__title', structureFieldLabel(field, fieldIndex)));
 
-        const fields = element('div', 'config-row-fields');
+        const fields = this.keepScroll(element('div', 'config-row-fields'), `structure:${structure.id}:field:${fieldIndex}:detail`);
         const fieldControls = [
             this.createEditorFormField('key', '', this.createStructureFieldKeyInput(structure, field)),
             this.createEditorFormField('类型', '', this.createStructureFieldTypeControl(field)),
@@ -992,7 +1024,7 @@ class ConfigTool {
         header.append(element('h3', 'config-panel__title', `枚举值 · ${enumSchema.values.length}`));
         panel.append(header);
 
-        const editor = element('div', 'config-data-editor');
+        const editor = this.keepScroll(element('div', 'config-data-editor'), `enum:${enumSchema.id}:editor`);
         editor.append(
             this.createEnumValueList(enumSchema),
             this.createEnumValueWorkspace(enumSchema),
@@ -1004,7 +1036,7 @@ class ConfigTool {
 
     private createEnumValueList(enumSchema: EnumState): HTMLElement {
         const sidebar = element('aside', 'config-row-nav');
-        const list = element('div', 'config-row-nav__list');
+        const list = this.keepScroll(element('div', 'config-row-nav__list'), `enum:${enumSchema.id}:values:list`);
         if (enumSchema.values.length === 0) {
             list.append(element('div', 'config-row-nav__empty', '暂无枚举值。'));
         }
@@ -1048,7 +1080,7 @@ class ConfigTool {
     }
 
     private createReadonlyEnumValuesTable(enumSchema: EnumState): HTMLElement {
-        const scroll = element('div', 'config-data-scroll');
+        const scroll = this.keepScroll(element('div', 'config-data-scroll'), `enum:${enumSchema.id}:overview`);
         const dataTable = element('table', 'config-data-table');
         const thead = element('thead');
         const headRow = element('tr');
@@ -1084,7 +1116,7 @@ class ConfigTool {
         const header = element('div', 'config-row-editor__header');
         header.append(element('h3', 'config-row-editor__title', enumValueLabel(enumValue, valueIndex)));
 
-        const fields = element('div', 'config-row-fields');
+        const fields = this.keepScroll(element('div', 'config-row-fields'), `enum:${enumSchema.id}:value:${valueIndex}:detail`);
         fields.append(
             this.createEditorFormField('key', '', this.createEnumValueKeyInput(enumSchema, enumValue)),
             this.createEditorFormField('value', '', this.createEnumValueNumberInput(enumSchema, enumValue)),
@@ -1557,7 +1589,7 @@ class ConfigTool {
         header.append(element('h3', 'config-panel__title', `数据行 · ${table.rows.length}`));
         panel.append(header);
 
-        const editor = element('div', 'config-data-editor');
+        const editor = this.keepScroll(element('div', 'config-data-editor'), `table:${table.id}:data:editor`);
         editor.append(
             this.createRowList(table),
             this.createDataWorkspace(table),
@@ -1569,7 +1601,7 @@ class ConfigTool {
 
     private createRowList(table: CsvTableState): HTMLElement {
         const sidebar = element('aside', 'config-row-nav');
-        const list = element('div', 'config-row-nav__list');
+        const list = this.keepScroll(element('div', 'config-row-nav__list'), `table:${table.id}:rows:list`);
         if (table.rows.length === 0) {
             list.append(element('div', 'config-row-nav__empty', '暂无数据行。'));
         }
@@ -1616,7 +1648,7 @@ class ConfigTool {
     }
 
     private createReadonlyTable(table: CsvTableState): HTMLElement {
-        const scroll = element('div', 'config-data-scroll');
+        const scroll = this.keepScroll(element('div', 'config-data-scroll'), `table:${table.id}:data:overview`);
         const dataTable = element('table', 'config-data-table');
         const thead = element('thead');
         const headRow = element('tr');
@@ -1719,7 +1751,7 @@ class ConfigTool {
         const header = element('div', 'config-row-editor__header');
         header.append(element('h3', 'config-row-editor__title', rowLabel(row, rowIndex)));
 
-        const fields = element('div', 'config-row-fields');
+        const fields = this.keepScroll(element('div', 'config-row-fields'), `table:${table.id}:row:${rowIndex}:detail`);
         table.fields.forEach((field) => {
             const fieldWrapper = element('div', 'config-row-field');
             const label = element('span', 'config-row-field__label', field.key);
@@ -1906,7 +1938,7 @@ class ConfigTool {
         });
 
         const addButton = button('新增项', 'button button--secondary config-array-editor__add', () => {
-            onChange(currentItems.concat(defaultArrayItem(field.type, structure)));
+            onChange(currentItems.concat(defaultArrayItem(field, structure)));
             this.render();
         });
         wrapper.append(list, addButton);
@@ -1942,7 +1974,7 @@ class ConfigTool {
 
         if (itemType === 'number') {
             return this.createNumberCellEditor(valueToBasicString(item, itemType), field, (nextValue) => {
-                onChange(basicStringToValue(nextValue, itemType));
+                onChange(numberEditorValueToData(nextValue, field));
             });
         }
 
@@ -1998,8 +2030,9 @@ class ConfigTool {
     ): HTMLElement {
         const type = kvPairMemberType(field, member);
         if (type === 'number') {
-            return this.createNumberCellEditor(valueToBasicString(value, type), kvPairMemberTarget(field, member), (nextValue) => {
-                onChange(basicStringToValue(nextValue, type));
+            const target = kvPairMemberTarget(field, member);
+            return this.createNumberCellEditor(valueToBasicString(value, type), target, (nextValue) => {
+                onChange(numberEditorValueToData(nextValue, target));
             });
         }
 
@@ -2045,7 +2078,7 @@ class ConfigTool {
                 );
             } else if (field.type === 'number') {
                 editor = this.createNumberCellEditor(valueToBasicString(value[field.key], field.type), field, (nextValue) => {
-                    currentValue[field.key] = basicStringToValue(nextValue, 'number');
+                    currentValue[field.key] = numberEditorValueToData(nextValue, field);
                     onChange(currentValue);
                 });
             } else {
@@ -3780,23 +3813,24 @@ function asObject(value: unknown, structure: StructureState): Record<string, unk
     };
 }
 
-function defaultArrayItem(type: FieldType | StructureFieldType, structure?: StructureState): unknown {
-    if (type === 'json[]') {
+function defaultArrayItem(field: FieldSchema | StructureFieldSchema, structure?: StructureState): unknown {
+    if (field.type === 'json[]') {
         return structure ? defaultStructureObject(structure) : {};
     }
-    const itemType = arrayItemType(type);
+    const itemType = arrayItemType(field.type);
     if (itemType === 'json') {
         return {};
+    }
+    if (itemType === 'number') {
+        return defaultNumberValue(field);
     }
     return basicStringToValue(defaultCellValue(itemType), itemType);
 }
 
 function defaultKvPair(field: FieldSchema | StructureFieldSchema): KvPairValue {
-    const keyType = kvPairMemberType(field, 'key');
-    const valueType = kvPairMemberType(field, 'value');
     return {
-        key: basicStringToValue(defaultCellValue(keyType), keyType),
-        value: basicStringToValue(defaultCellValue(valueType), valueType)
+        key: defaultKvPairMemberValue(field, 'key'),
+        value: defaultKvPairMemberValue(field, 'value')
     };
 }
 
@@ -3807,15 +3841,15 @@ function asKvPair(value: unknown, field: FieldSchema | StructureFieldSchema): Kv
     }
     const record = value as Record<string, unknown>;
     return {
-        key: unknownToBasicValue(record.key, kvPairMemberType(field, 'key')),
-        value: unknownToBasicValue(record.value, kvPairMemberType(field, 'value'))
+        key: unknownToKvPairMemberValue(record.key, field, 'key'),
+        value: unknownToKvPairMemberValue(record.value, field, 'value')
     };
 }
 
 function defaultStructureObject(structure: StructureState): Record<string, unknown> {
     return Object.fromEntries(structure.fields.map((field) => [
         field.key,
-        isArrayField(field.type) ? [] : basicStringToValue(defaultCellValue(field.type), field.type as BasicType)
+        isArrayField(field.type) ? [] : defaultStructureFieldValue(field)
     ]));
 }
 
@@ -3923,6 +3957,13 @@ function valueToBasicString(value: unknown, type: BasicType): string {
     return stringFromUnknown(value);
 }
 
+function numberEditorValueToData(value: string, field: NumberConstraintTarget): string | number {
+    if (value === '' && isChoiceNumberConstraint(field)) {
+        return '';
+    }
+    return basicStringToValue(value, 'number') as number;
+}
+
 function basicStringToValue(value: string, type: BasicType): string | number | boolean {
     if (type === 'boolean') {
         return value === 'true';
@@ -3942,6 +3983,46 @@ function unknownToBasicValue(value: unknown, type: BasicType): string | number |
         return Number.isFinite(numberValue) ? numberValue : 0;
     }
     return stringFromUnknown(value);
+}
+
+function defaultNumberValue(field: NumberConstraintTarget): string | number {
+    return isChoiceNumberConstraint(field)
+        ? ''
+        : basicStringToValue(defaultCellValue('number'), 'number') as number;
+}
+
+function defaultKvPairMemberValue(field: FieldSchema | StructureFieldSchema, member: KvPairMember): string | number | boolean {
+    const type = kvPairMemberType(field, member);
+    return type === 'number'
+        ? defaultNumberValue(kvPairMemberTarget(field, member))
+        : basicStringToValue(defaultCellValue(type), type);
+}
+
+function defaultStructureFieldValue(field: StructureFieldSchema): string | number | boolean {
+    return field.type === 'number'
+        ? defaultNumberValue(field)
+        : basicStringToValue(defaultCellValue(field.type), field.type as BasicType);
+}
+
+function unknownToKvPairMemberValue(
+    value: unknown,
+    field: FieldSchema | StructureFieldSchema,
+    member: KvPairMember
+): string | number | boolean {
+    const type = kvPairMemberType(field, member);
+    if (
+        type === 'number'
+        && (value === undefined || value === null || value === '')
+        && isChoiceNumberConstraint(kvPairMemberTarget(field, member))
+    ) {
+        return '';
+    }
+    return unknownToBasicValue(value, type);
+}
+
+function isChoiceNumberConstraint(field: NumberConstraintTarget): boolean {
+    const constraint = normalizedNumberConstraint(field.type, field.numberConstraint);
+    return constraint?.kind === 'reference' || constraint?.kind === 'enum';
 }
 
 function stringFromUnknown(value: unknown): string {
