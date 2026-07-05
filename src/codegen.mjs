@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const fieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'json', 'json[]']);
-const structureFieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]']);
+const fieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'json', 'json[]', 'kvPairs']);
+const basicTypes = new Set(['string', 'number', 'boolean']);
+const structureFieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'kvPairs']);
 const numberConstraintKinds = new Set(['number', 'reference', 'enum']);
 const requiredCsvFields = ['id', 'name'];
 const reservedWords = new Set([
@@ -628,6 +629,8 @@ function runtimeHelpersForFieldParsers(fields) {
             helpers.add('booleanArrayValue');
         } else if (field.type === 'json' || field.type === 'json[]') {
             helpers.add('jsonValue');
+        } else if (field.type === 'kvPairs') {
+            helpers.add('jsonValue');
         } else {
             helpers.add('stringValue');
         }
@@ -642,9 +645,15 @@ function enumTypesForStructureDefinitions(schema, names) {
 function enumTypesForFields(fields, names) {
     const enumTypes = new Set();
     for (const field of fields) {
-        const enumKey = field.numberConstraint?.kind === 'enum' ? field.numberConstraint.enum : undefined;
-        if (enumKey && names.enumTypes.has(enumKey)) {
-            enumTypes.add(names.enumTypes.get(enumKey));
+        const enumKeys = [
+            field.numberConstraint?.kind === 'enum' ? field.numberConstraint.enum : undefined,
+            field.keyNumberConstraint?.kind === 'enum' ? field.keyNumberConstraint.enum : undefined,
+            field.valueNumberConstraint?.kind === 'enum' ? field.valueNumberConstraint.enum : undefined
+        ];
+        for (const enumKey of enumKeys) {
+            if (enumKey && names.enumTypes.has(enumKey)) {
+                enumTypes.add(names.enumTypes.get(enumKey));
+            }
         }
     }
     return Array.from(enumTypes);
@@ -713,10 +722,16 @@ function fieldParserExpression(field, names) {
     if (field.type === 'json[]') {
         return `jsonValue<${fieldType(field, names)}>(${access}, [])`;
     }
+    if (field.type === 'kvPairs') {
+        return `jsonValue<${fieldType(field, names)}>(${access}, [])`;
+    }
     return `stringValue(${access})`;
 }
 
 function fieldType(field, names) {
+    if (field.type === 'kvPairs') {
+        return kvPairsType(field, names);
+    }
     if (field.type === 'number' && field.numberConstraint?.kind === 'enum' && names.enumTypes.has(field.numberConstraint.enum)) {
         return names.enumTypes.get(field.numberConstraint.enum);
     }
@@ -739,6 +754,9 @@ function fieldType(field, names) {
 }
 
 function structureFieldType(field, names) {
+    if (field.type === 'kvPairs') {
+        return kvPairsType(field, names);
+    }
     if (field.type === 'number' && field.numberConstraint?.kind === 'enum' && names.enumTypes.has(field.numberConstraint.enum)) {
         return names.enumTypes.get(field.numberConstraint.enum);
     }
@@ -746,6 +764,19 @@ function structureFieldType(field, names) {
         return `${names.enumTypes.get(field.numberConstraint.enum)}[]`;
     }
     return field.type;
+}
+
+function kvPairsType(field, names) {
+    return `Array<{ key: ${kvPairMemberType(field, 'key', names)}; value: ${kvPairMemberType(field, 'value', names)} }>`;
+}
+
+function kvPairMemberType(field, member, names) {
+    const type = normalizeBasicType(member === 'key' ? field.keyType : field.valueType);
+    const constraint = member === 'key' ? field.keyNumberConstraint : field.valueNumberConstraint;
+    if (type === 'number' && constraint?.kind === 'enum' && names.enumTypes.has(constraint.enum)) {
+        return names.enumTypes.get(constraint.enum);
+    }
+    return type;
 }
 
 function jsonType(value, indentLevel) {
@@ -861,12 +892,20 @@ function normalizeStructureRecord(structures) {
             description: stringValue(structure?.description),
             fields: arrayValue(structure?.fields).map((field) => {
                 const type = structureFieldTypes.has(field?.type) ? field.type : 'string';
-                return {
+                const nextField = {
                     key: stringValue(field?.key).trim(),
                     type,
-                    description: stringValue(field?.description),
-                    numberConstraint: normalizeNumberConstraint(type, field?.numberConstraint)
+                    description: stringValue(field?.description)
                 };
+                if (type === 'kvPairs') {
+                    nextField.keyType = normalizeBasicType(field?.keyType);
+                    nextField.valueType = normalizeBasicType(field?.valueType);
+                    nextField.keyNumberConstraint = normalizeNumberConstraint(nextField.keyType, field?.keyNumberConstraint);
+                    nextField.valueNumberConstraint = normalizeNumberConstraint(nextField.valueType, field?.valueNumberConstraint);
+                } else {
+                    nextField.numberConstraint = normalizeNumberConstraint(type, field?.numberConstraint);
+                }
+                return nextField;
             }).filter((field) => field.key)
         }
     ]));
@@ -895,8 +934,12 @@ function fieldsForTable(schema, moduleKey, headers, rows) {
                 key: stringValue(field.key).trim(),
                 type,
                 description: stringValue(field.description),
-                structure: stringValue(field.structure).trim() || undefined,
-                numberConstraint: normalizeNumberConstraint(type, field.numberConstraint)
+                structure: type === 'kvPairs' ? undefined : stringValue(field.structure).trim() || undefined,
+                numberConstraint: type === 'kvPairs' ? undefined : normalizeNumberConstraint(type, field.numberConstraint),
+                keyType: type === 'kvPairs' ? normalizeBasicType(field.keyType) : undefined,
+                valueType: type === 'kvPairs' ? normalizeBasicType(field.valueType) : undefined,
+                keyNumberConstraint: type === 'kvPairs' ? normalizeNumberConstraint(normalizeBasicType(field.keyType), field.keyNumberConstraint) : undefined,
+                valueNumberConstraint: type === 'kvPairs' ? normalizeNumberConstraint(normalizeBasicType(field.valueType), field.valueNumberConstraint) : undefined
             };
         });
     const knownKeys = new Set(schemaFields.map((field) => field.key));
@@ -958,7 +1001,14 @@ function normalizeNumberConstraint(type, constraint) {
     return enumKey ? { kind, enum: enumKey } : { kind };
 }
 
+function normalizeBasicType(type) {
+    return basicTypes.has(type) ? type : 'string';
+}
+
 function baseFieldType(type) {
+    if (type === 'kvPairs') {
+        return type;
+    }
     return stringValue(type).replace('[]', '');
 }
 

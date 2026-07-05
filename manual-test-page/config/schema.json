@@ -12,7 +12,7 @@
                 {
                     "key": "name",
                     "type": "string",
-                    "description": "Display name"
+                    "description": "显示名称"
                 },
                 {
                     "key": "rarity",
@@ -43,6 +43,13 @@
                     "type": "json",
                     "description": "Combat stats",
                     "structure": "ItemStats"
+                },
+                {
+                    "key": "params",
+                    "type": "kvPairs",
+                    "description": "可选参数",
+                    "keyType": "string",
+                    "valueType": "number"
                 }
             ]
         }
@@ -51,6 +58,28 @@
         "game.settings": {
             "path": "game/settings.json",
             "description": "Runtime tuning values"
+        }
+    },
+    "enums": {
+        "Rarity": {
+            "description": "Item rarity",
+            "values": [
+                {
+                    "key": "Common",
+                    "value": 1,
+                    "description": "Common"
+                },
+                {
+                    "key": "Rare",
+                    "value": 2,
+                    "description": "Rare"
+                },
+                {
+                    "key": "Epic",
+                    "value": 3,
+                    "description": "Epic"
+                }
+            ]
         }
     },
     "structures": {
@@ -75,28 +104,6 @@
                     "key": "unique",
                     "type": "boolean",
                     "description": "Unique item"
-                }
-            ]
-        }
-    },
-    "enums": {
-        "Rarity": {
-            "description": "Item rarity",
-            "values": [
-                {
-                    "key": "Common",
-                    "value": 1,
-                    "description": "Common"
-                },
-                {
-                    "key": "Rare",
-                    "value": 2,
-                    "description": "Rare"
-                },
-                {
-                    "key": "Epic",
-                    "value": 3,
-                    "description": "Epic"
                 }
             ]
         }

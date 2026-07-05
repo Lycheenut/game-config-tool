@@ -909,6 +909,17 @@ button {
     min-height: 32px;
 }
 
+.config-kv-member-config {
+    display: grid;
+    gap: 6px;
+}
+
+.config-kv-pair-item__editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+}
+
 .config-structure-editor {
     display: grid;
     gap: 8px;

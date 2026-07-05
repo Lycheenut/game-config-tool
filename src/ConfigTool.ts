@@ -2,8 +2,9 @@ const DEFAULT_CONFIG_API_BASE_URL = '/__config-tool/api';
 const DEFAULT_STATIC_CONFIG_BASE_URL = '/config';
 const BASIC_TYPES = ['string', 'number', 'boolean'] as const;
 const FIELD_BASE_TYPES = ['string', 'number', 'boolean', 'json'] as const;
-const FIELD_TYPES = ['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'json', 'json[]'] as const;
-const STRUCTURE_FIELD_TYPES = ['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]'] as const;
+const KV_PAIR_FIELD_TYPE = 'kvPairs';
+const FIELD_TYPES = ['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'json', 'json[]', KV_PAIR_FIELD_TYPE] as const;
+const STRUCTURE_FIELD_TYPES = ['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', KV_PAIR_FIELD_TYPE] as const;
 const NUMBER_CONSTRAINT_KINDS = ['number', 'reference', 'enum'] as const;
 const MODULE_KEY_PATTERN = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
 const STRUCTURE_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -11,6 +12,7 @@ const REQUIRED_CSV_FIELDS = ['id', 'name'] as const;
 
 type BasicType = typeof BASIC_TYPES[number];
 type FieldBaseType = typeof FIELD_BASE_TYPES[number];
+type KvPairMember = 'key' | 'value';
 export type FieldType = typeof FIELD_TYPES[number];
 export type StructureFieldType = typeof STRUCTURE_FIELD_TYPES[number];
 export type NumberConstraintKind = typeof NUMBER_CONSTRAINT_KINDS[number];
@@ -27,6 +29,10 @@ export interface FieldSchema {
     description: string;
     structure?: string;
     numberConstraint?: NumberConstraintSchema;
+    keyType?: BasicType;
+    valueType?: BasicType;
+    keyNumberConstraint?: NumberConstraintSchema;
+    valueNumberConstraint?: NumberConstraintSchema;
 }
 
 export interface StructureFieldSchema {
@@ -34,6 +40,10 @@ export interface StructureFieldSchema {
     type: StructureFieldType;
     description: string;
     numberConstraint?: NumberConstraintSchema;
+    keyType?: BasicType;
+    valueType?: BasicType;
+    keyNumberConstraint?: NumberConstraintSchema;
+    valueNumberConstraint?: NumberConstraintSchema;
 }
 
 export interface EnumValueSchema {
@@ -189,6 +199,16 @@ export interface ConfigToolCodegenResult {
     inputRoot: string;
     outputRoot: string;
     files: string[];
+}
+
+interface NumberConstraintTarget {
+    readonly type: FieldType | StructureFieldType;
+    numberConstraint?: NumberConstraintSchema;
+}
+
+interface KvPairValue {
+    key: string | number | boolean;
+    value: string | number | boolean;
 }
 
 export interface ConfigToolHandle {
@@ -824,7 +844,13 @@ class ConfigTool {
             this.createEditorFormField('类型', '', this.createFieldTypeControl(field)),
             this.createEditorFormField('描述', '', this.createFieldDescriptionInput(field))
         ];
-        if (baseFieldType(field.type) === 'number' && !isRequiredField(field.key)) {
+        if (isKvPairField(field)) {
+            fieldControls.splice(2, 0,
+                this.createKvPairMemberDefinitionField('Key', field, 'key'),
+                this.createKvPairMemberDefinitionField('Value', field, 'value')
+            );
+        }
+        if (!isKvPairField(field) && baseFieldType(field.type) === 'number' && !isRequiredField(field.key)) {
             fieldControls.splice(2, 0, this.createEditorFormField('约束', '', this.createNumberConstraintEditor(field)));
         }
         if (isStructuredField(field)) {
@@ -944,7 +970,12 @@ class ConfigTool {
             this.createEditorFormField('类型', '', this.createStructureFieldTypeControl(field)),
             this.createEditorFormField('描述', '', this.createStructureFieldDescriptionInput(field))
         ];
-        if (baseFieldType(field.type) === 'number') {
+        if (isKvPairField(field)) {
+            fieldControls.splice(2, 0,
+                this.createKvPairMemberDefinitionField('Key', field, 'key'),
+                this.createKvPairMemberDefinitionField('Value', field, 'value')
+            );
+        } else if (baseFieldType(field.type) === 'number') {
             fieldControls.splice(2, 0, this.createEditorFormField('约束', '', this.createNumberConstraintEditor(field)));
         }
         fields.append(...fieldControls);
@@ -1200,10 +1231,12 @@ class ConfigTool {
     private createFieldTypeControl(field: FieldSchema): HTMLElement {
         const wrapper = element('div', 'config-type-control');
         const locked = isRequiredField(field.key);
-        wrapper.append(
-            this.createFieldTypeSelect(field, locked),
-            this.createArrayToggle(isArrayField(field.type), (checked) => {
-                field.type = fieldTypeWithArray(baseFieldType(field.type), checked);
+        wrapper.append(this.createFieldTypeSelect(field, locked));
+        if (isKvPairField(field)) {
+            wrapper.append(this.createArrayToggle(true, () => undefined, true));
+        } else {
+            wrapper.append(this.createArrayToggle(isArrayField(field.type), (checked) => {
+                field.type = fieldTypeWithArray(baseFieldType(field.type) as FieldBaseType, checked);
                 if (!isStructuredField(field)) {
                     field.structure = undefined;
                 }
@@ -1211,23 +1244,37 @@ class ConfigTool {
                     field.numberConstraint = undefined;
                 }
                 this.render();
-            }, locked)
-        );
+            }, locked));
+        }
         return wrapper;
     }
 
     private createFieldTypeSelect(field: FieldSchema, disabled = false): HTMLSelectElement {
         const select = element('select', 'config-cell') as HTMLSelectElement;
         FIELD_BASE_TYPES.forEach((type) => select.append(new Option(type, type)));
-        select.value = baseFieldType(field.type);
+        select.append(new Option('KV Pairs', KV_PAIR_FIELD_TYPE));
+        select.value = isKvPairField(field) ? KV_PAIR_FIELD_TYPE : baseFieldType(field.type);
         select.disabled = disabled;
         select.addEventListener('change', () => {
-            field.type = fieldTypeWithArray(select.value as FieldBaseType, isArrayField(field.type));
-            if (!isStructuredField(field)) {
+            if (select.value === KV_PAIR_FIELD_TYPE) {
+                field.type = KV_PAIR_FIELD_TYPE;
+                field.keyType = kvPairMemberType(field, 'key');
+                field.valueType = kvPairMemberType(field, 'value');
                 field.structure = undefined;
-            }
-            if (baseFieldType(field.type) !== 'number') {
                 field.numberConstraint = undefined;
+            } else {
+                const wasArray = !isKvPairField(field) && isArrayField(field.type);
+                field.type = fieldTypeWithArray(select.value as FieldBaseType, wasArray);
+                field.keyType = undefined;
+                field.valueType = undefined;
+                field.keyNumberConstraint = undefined;
+                field.valueNumberConstraint = undefined;
+                if (!isStructuredField(field)) {
+                    field.structure = undefined;
+                }
+                if (baseFieldType(field.type) !== 'number') {
+                    field.numberConstraint = undefined;
+                }
             }
             this.render();
         });
@@ -1259,27 +1306,65 @@ class ConfigTool {
 
     private createStructureFieldTypeControl(field: StructureFieldSchema): HTMLElement {
         const wrapper = element('div', 'config-type-control');
-        wrapper.append(
-            this.createStructureFieldTypeSelect(field),
-            this.createArrayToggle(isArrayField(field.type), (checked) => {
+        wrapper.append(this.createStructureFieldTypeSelect(field));
+        if (isKvPairField(field)) {
+            wrapper.append(this.createArrayToggle(true, () => undefined, true));
+        } else {
+            wrapper.append(this.createArrayToggle(isArrayField(field.type), (checked) => {
                 field.type = structureFieldTypeWithArray(baseFieldType(field.type) as BasicType, checked);
                 if (baseFieldType(field.type) !== 'number') {
                     field.numberConstraint = undefined;
                 }
                 this.render();
-            })
-        );
+            }));
+        }
         return wrapper;
     }
 
     private createStructureFieldTypeSelect(field: StructureFieldSchema): HTMLSelectElement {
         const select = element('select', 'config-cell') as HTMLSelectElement;
         BASIC_TYPES.forEach((type) => select.append(new Option(type, type)));
-        select.value = baseFieldType(field.type);
+        select.append(new Option('KV Pairs', KV_PAIR_FIELD_TYPE));
+        select.value = isKvPairField(field) ? KV_PAIR_FIELD_TYPE : baseFieldType(field.type);
         select.addEventListener('change', () => {
-            field.type = structureFieldTypeWithArray(select.value as BasicType, isArrayField(field.type));
-            if (baseFieldType(field.type) !== 'number') {
+            if (select.value === KV_PAIR_FIELD_TYPE) {
+                field.type = KV_PAIR_FIELD_TYPE;
+                field.keyType = kvPairMemberType(field, 'key');
+                field.valueType = kvPairMemberType(field, 'value');
                 field.numberConstraint = undefined;
+            } else {
+                const wasArray = !isKvPairField(field) && isArrayField(field.type);
+                field.type = structureFieldTypeWithArray(select.value as BasicType, wasArray);
+                field.keyType = undefined;
+                field.valueType = undefined;
+                field.keyNumberConstraint = undefined;
+                field.valueNumberConstraint = undefined;
+                if (baseFieldType(field.type) !== 'number') {
+                    field.numberConstraint = undefined;
+                }
+            }
+            this.render();
+        });
+        return select;
+    }
+
+    private createKvPairMemberDefinitionField(label: string, field: FieldSchema | StructureFieldSchema, member: KvPairMember): HTMLElement {
+        const wrapper = element('div', 'config-kv-member-config');
+        wrapper.append(this.createKvPairMemberTypeSelect(field, member));
+        if (kvPairMemberType(field, member) === 'number') {
+            wrapper.append(this.createNumberConstraintEditor(kvPairMemberTarget(field, member)));
+        }
+        return this.createEditorFormField(label, '', wrapper);
+    }
+
+    private createKvPairMemberTypeSelect(field: FieldSchema | StructureFieldSchema, member: KvPairMember): HTMLSelectElement {
+        const select = element('select', 'config-cell') as HTMLSelectElement;
+        BASIC_TYPES.forEach((type) => select.append(new Option(type, type)));
+        select.value = kvPairMemberType(field, member);
+        select.addEventListener('change', () => {
+            setKvPairMemberType(field, member, select.value as BasicType);
+            if (select.value !== 'number') {
+                setKvPairMemberNumberConstraint(field, member, undefined);
             }
             this.render();
         });
@@ -1359,7 +1444,7 @@ class ConfigTool {
         return select;
     }
 
-    private createNumberConstraintEditor(field: FieldSchema | StructureFieldSchema): HTMLElement {
+    private createNumberConstraintEditor(field: NumberConstraintTarget): HTMLElement {
         const wrapper = element('div', 'config-number-constraint');
         const constraint = normalizedNumberConstraint(field.type, field.numberConstraint) ?? { kind: 'number' as NumberConstraintKind };
         const kindSelect = element('select', 'config-cell') as HTMLSelectElement;
@@ -1385,7 +1470,7 @@ class ConfigTool {
         return wrapper;
     }
 
-    private createNumberRangeEditor(field: FieldSchema | StructureFieldSchema, constraint: NumberConstraintSchema): HTMLElement {
+    private createNumberRangeEditor(field: NumberConstraintTarget, constraint: NumberConstraintSchema): HTMLElement {
         const wrapper = element('div', 'config-number-range');
         const minInput = element('input', 'config-cell') as HTMLInputElement;
         minInput.type = 'number';
@@ -1412,7 +1497,7 @@ class ConfigTool {
     }
 
     private nextNumberRangeConstraint(
-        field: FieldSchema | StructureFieldSchema,
+        field: NumberConstraintTarget,
         key: 'min' | 'max',
         value: string
     ): NumberConstraintSchema | undefined {
@@ -1431,7 +1516,7 @@ class ConfigTool {
         return compactNumberConstraint(field.type, next);
     }
 
-    private createReferenceTableSelect(field: FieldSchema | StructureFieldSchema, tableKey: string): HTMLSelectElement {
+    private createReferenceTableSelect(field: NumberConstraintTarget, tableKey: string): HTMLSelectElement {
         const select = element('select', 'config-cell') as HTMLSelectElement;
         select.append(new Option('选择引用表', ''));
         this.tables.forEach((table) => select.append(new Option(table.moduleKey, table.moduleKey)));
@@ -1446,7 +1531,7 @@ class ConfigTool {
         return select;
     }
 
-    private createEnumSelect(field: FieldSchema | StructureFieldSchema, enumKey: string): HTMLSelectElement {
+    private createEnumSelect(field: NumberConstraintTarget, enumKey: string): HTMLSelectElement {
         const select = element('select', 'config-cell') as HTMLSelectElement;
         select.append(new Option(this.enums.length === 0 ? '暂无枚举类型' : '选择枚举类型', ''));
         this.enums.forEach((enumSchema) => select.append(new Option(enumSchemaOptionLabel(enumSchema), enumSchema.key)));
@@ -1651,6 +1736,12 @@ class ConfigTool {
     private createCellEditor(row: CsvRow, field: FieldSchema): HTMLElement {
         const value = row[field.key] ?? '';
         const structure = this.structureForField(field);
+        if (isKvPairField(field)) {
+            return this.createKvPairsEditor(parseArrayValue(value), field, (items) => {
+                row[field.key] = JSON.stringify(items);
+            });
+        }
+
         if (isArrayField(field.type)) {
             return this.createArrayEditor(
                 parseArrayValue(value),
@@ -1697,7 +1788,7 @@ class ConfigTool {
 
     private createNumberCellEditor(
         value: string,
-        field: FieldSchema | StructureFieldSchema,
+        field: NumberConstraintTarget,
         onChange: (value: string) => void
     ): HTMLElement {
         const constraint = normalizedNumberConstraint(field.type, field.numberConstraint);
@@ -1860,6 +1951,63 @@ class ConfigTool {
         });
     }
 
+    private createKvPairsEditor(items: unknown[], field: FieldSchema | StructureFieldSchema, onChange: (items: unknown[]) => void): HTMLElement {
+        const wrapper = element('div', 'config-array-editor config-kv-editor');
+        const list = element('div', 'config-array-editor__list');
+        const currentItems = items.map((item) => asKvPair(item, field));
+
+        if (currentItems.length === 0) {
+            list.append(element('div', 'config-array-editor__empty', '暂无项目。'));
+        }
+
+        currentItems.forEach((pair, index) => {
+            const row = element('div', 'config-array-item config-kv-pair-item');
+            const indexNode = element('span', 'config-array-item__index', String(index + 1));
+            const editor = element('div', 'config-kv-pair-item__editor');
+            editor.append(
+                this.createKvPairMemberEditor(pair.key, field, 'key', (nextValue) => {
+                    currentItems[index] = { ...currentItems[index], key: nextValue };
+                    onChange(currentItems);
+                }),
+                this.createKvPairMemberEditor(pair.value, field, 'value', (nextValue) => {
+                    currentItems[index] = { ...currentItems[index], value: nextValue };
+                    onChange(currentItems);
+                })
+            );
+            const removeButton = button('删除', 'button button--ghost config-array-item__remove', () => {
+                onChange(currentItems.filter((_, itemIndex) => itemIndex !== index));
+                this.render();
+            });
+            row.append(indexNode, editor, removeButton);
+            list.append(row);
+        });
+
+        const addButton = button('新增项', 'button button--secondary config-array-editor__add', () => {
+            onChange(currentItems.concat(defaultKvPair(field)));
+            this.render();
+        });
+        wrapper.append(list, addButton);
+        return wrapper;
+    }
+
+    private createKvPairMemberEditor(
+        value: unknown,
+        field: FieldSchema | StructureFieldSchema,
+        member: KvPairMember,
+        onChange: (value: string | number | boolean) => void
+    ): HTMLElement {
+        const type = kvPairMemberType(field, member);
+        if (type === 'number') {
+            return this.createNumberCellEditor(valueToBasicString(value, type), kvPairMemberTarget(field, member), (nextValue) => {
+                onChange(basicStringToValue(nextValue, type));
+            });
+        }
+
+        return this.createBasicEditor(valueToBasicString(value, type), type, (nextValue) => {
+            onChange(basicStringToValue(nextValue, type));
+        });
+    }
+
     private createStructuredObjectEditor(value: Record<string, unknown>, structure: StructureState, onChange: (value: Record<string, unknown>) => void): HTMLElement {
         const wrapper = element('div', 'config-structure-editor');
         const currentValue = { ...value };
@@ -1876,7 +2024,12 @@ class ConfigTool {
             const meta = element('span', 'config-structure-field__meta', field.description ? `${typeLabel} · ${field.description}` : typeLabel);
             info.append(label, meta);
             let editor: HTMLElement;
-            if (isArrayField(field.type)) {
+            if (isKvPairField(field)) {
+                editor = this.createKvPairsEditor(arrayFromUnknown(value[field.key]), field, (items) => {
+                    currentValue[field.key] = items;
+                    onChange(currentValue);
+                });
+            } else if (isArrayField(field.type)) {
                 editor = this.createArrayEditor(
                     arrayFromUnknown(value[field.key]),
                     {
@@ -2309,12 +2462,24 @@ class ConfigTool {
                 if (field.numberConstraint?.kind === 'enum' && field.numberConstraint.enum === previousKey) {
                     field.numberConstraint.enum = nextKey;
                 }
+                if (field.keyNumberConstraint?.kind === 'enum' && field.keyNumberConstraint.enum === previousKey) {
+                    field.keyNumberConstraint.enum = nextKey;
+                }
+                if (field.valueNumberConstraint?.kind === 'enum' && field.valueNumberConstraint.enum === previousKey) {
+                    field.valueNumberConstraint.enum = nextKey;
+                }
             });
         });
         this.structures.forEach((structure) => {
             structure.fields.forEach((field) => {
                 if (field.numberConstraint?.kind === 'enum' && field.numberConstraint.enum === previousKey) {
                     field.numberConstraint.enum = nextKey;
+                }
+                if (field.keyNumberConstraint?.kind === 'enum' && field.keyNumberConstraint.enum === previousKey) {
+                    field.keyNumberConstraint.enum = nextKey;
+                }
+                if (field.valueNumberConstraint?.kind === 'enum' && field.valueNumberConstraint.enum === previousKey) {
+                    field.valueNumberConstraint.enum = nextKey;
                 }
             });
         });
@@ -2681,7 +2846,12 @@ class ConfigTool {
             if (fieldKeys.has(field.key)) {
                 errors.push(`${structure.key} 结构字段 key 重复：${field.key}`);
             }
-            this.validateNumberConstraintDefinition(field, `${structure.key}.${field.key}`, errors);
+            if (isKvPairField(field)) {
+                this.validateNumberConstraintDefinition(kvPairMemberTarget(field, 'key'), `${structure.key}.${field.key}.key`, errors);
+                this.validateNumberConstraintDefinition(kvPairMemberTarget(field, 'value'), `${structure.key}.${field.key}.value`, errors);
+            } else {
+                this.validateNumberConstraintDefinition(field, `${structure.key}.${field.key}`, errors);
+            }
             fieldKeys.add(field.key);
         });
     }
@@ -2708,7 +2878,12 @@ class ConfigTool {
             if (field.key === 'name' && field.type !== 'string') {
                 errors.push(`${table.moduleKey}.name 必须是 string 类型。`);
             }
-            this.validateNumberConstraintDefinition(field, `${table.moduleKey}.${field.key}`, errors);
+            if (isKvPairField(field)) {
+                this.validateNumberConstraintDefinition(kvPairMemberTarget(field, 'key'), `${table.moduleKey}.${field.key}.key`, errors);
+                this.validateNumberConstraintDefinition(kvPairMemberTarget(field, 'value'), `${table.moduleKey}.${field.key}.value`, errors);
+            } else {
+                this.validateNumberConstraintDefinition(field, `${table.moduleKey}.${field.key}`, errors);
+            }
             keys.add(field.key);
         });
         REQUIRED_CSV_FIELDS.forEach((fieldKey) => {
@@ -2719,7 +2894,7 @@ class ConfigTool {
     }
 
     private validateNumberConstraintDefinition(
-        field: FieldSchema | StructureFieldSchema,
+        field: NumberConstraintTarget,
         label: string,
         errors: string[]
     ): void {
@@ -2973,11 +3148,19 @@ class ConfigTool {
     }
 
     private isEnumReferenced(enumKey: string): boolean {
-        return this.tables.some((table) => table.fields.some((field) => field.numberConstraint?.kind === 'enum' && field.numberConstraint.enum === enumKey))
-            || this.structures.some((structure) => structure.fields.some((field) => field.numberConstraint?.kind === 'enum' && field.numberConstraint.enum === enumKey));
+        return this.tables.some((table) => table.fields.some((field) => field.numberConstraint?.kind === 'enum' && field.numberConstraint.enum === enumKey
+            || field.keyNumberConstraint?.kind === 'enum' && field.keyNumberConstraint.enum === enumKey
+            || field.valueNumberConstraint?.kind === 'enum' && field.valueNumberConstraint.enum === enumKey))
+            || this.structures.some((structure) => structure.fields.some((field) => field.numberConstraint?.kind === 'enum' && field.numberConstraint.enum === enumKey
+                || field.keyNumberConstraint?.kind === 'enum' && field.keyNumberConstraint.enum === enumKey
+                || field.valueNumberConstraint?.kind === 'enum' && field.valueNumberConstraint.enum === enumKey));
     }
 
     private fieldTypeLabel(field: FieldSchema | StructureFieldSchema): string {
+        if (field.type === KV_PAIR_FIELD_TYPE) {
+            const kvField = field as StructureFieldSchema;
+            return `KV Pairs<${kvPairMemberType(kvField, 'key')}, ${kvPairMemberType(kvField, 'value')}>`;
+        }
         return this.numberEnumTypeLabel(field) ?? field.type;
     }
 
@@ -2985,6 +3168,10 @@ class ConfigTool {
         const enumTypeLabel = this.numberEnumTypeLabel(field);
         if (enumTypeLabel) {
             return enumTypeLabel;
+        }
+
+        if (isKvPairField(field)) {
+            return this.fieldTypeLabel(field);
         }
 
         if (!isStructuredField(field)) {
@@ -3121,13 +3308,21 @@ function fieldsForTable(schema: ConfigSchema, moduleKey: string, headers: string
         .filter((field) => field.key)
         .map((field) => {
             const type = FIELD_TYPES.includes(field.type) ? field.type : 'string';
-            return {
+            const nextField: FieldSchema = {
                 key: field.key,
                 type,
-                description: field.description ?? '',
-                structure: field.structure,
-                numberConstraint: normalizedNumberConstraint(type, field.numberConstraint)
+                description: field.description ?? ''
             };
+            if (type === KV_PAIR_FIELD_TYPE) {
+                nextField.keyType = normalizedBasicType(field.keyType);
+                nextField.valueType = normalizedBasicType(field.valueType);
+                nextField.keyNumberConstraint = normalizedNumberConstraint(nextField.keyType, field.keyNumberConstraint);
+                nextField.valueNumberConstraint = normalizedNumberConstraint(nextField.valueType, field.valueNumberConstraint);
+            } else {
+                nextField.structure = field.structure;
+                nextField.numberConstraint = normalizedNumberConstraint(type, field.numberConstraint);
+            }
+            return nextField;
         });
     const knownKeys = new Set(schemaFields.map((field) => field.key));
     const inferred: FieldSchema[] = headers
@@ -3157,12 +3352,20 @@ function normalizeStructureRecord(structures: ConfigSchema['structures'] | undef
             description: structure.description ?? '',
             fields: (structure.fields ?? []).map((field) => {
                 const type = STRUCTURE_FIELD_TYPES.includes(field.type) ? field.type : 'string';
-                return {
+                const nextField: StructureFieldSchema = {
                     key: field.key,
                     type,
-                    description: field.description ?? '',
-                    numberConstraint: normalizedNumberConstraint(type, field.numberConstraint)
+                    description: field.description ?? ''
                 };
+                if (type === KV_PAIR_FIELD_TYPE) {
+                    nextField.keyType = normalizedBasicType(field.keyType);
+                    nextField.valueType = normalizedBasicType(field.valueType);
+                    nextField.keyNumberConstraint = normalizedNumberConstraint(nextField.keyType, field.keyNumberConstraint);
+                    nextField.valueNumberConstraint = normalizedNumberConstraint(nextField.valueType, field.valueNumberConstraint);
+                } else {
+                    nextField.numberConstraint = normalizedNumberConstraint(type, field.numberConstraint);
+                }
+                return nextField;
             })
         }
     ]));
@@ -3409,11 +3612,21 @@ function isStructuredField(field: FieldSchema): boolean {
     return field.type === 'json' || field.type === 'json[]';
 }
 
-function isArrayField(type: FieldType | StructureFieldType): boolean {
-    return type.endsWith('[]');
+function isKvPairField(field: FieldSchema | StructureFieldSchema): boolean {
+    return field.type === KV_PAIR_FIELD_TYPE;
 }
 
-function baseFieldType(type: FieldType | StructureFieldType): FieldBaseType {
+function isArrayField(type: FieldType | StructureFieldType): boolean {
+    return type === KV_PAIR_FIELD_TYPE || type.endsWith('[]');
+}
+
+function baseFieldType(type: FieldType): FieldBaseType | typeof KV_PAIR_FIELD_TYPE;
+function baseFieldType(type: StructureFieldType): BasicType | typeof KV_PAIR_FIELD_TYPE;
+function baseFieldType(type: FieldType | StructureFieldType): FieldBaseType | typeof KV_PAIR_FIELD_TYPE;
+function baseFieldType(type: FieldType | StructureFieldType): FieldBaseType | typeof KV_PAIR_FIELD_TYPE {
+    if (type === KV_PAIR_FIELD_TYPE) {
+        return KV_PAIR_FIELD_TYPE;
+    }
     return arrayItemType(type);
 }
 
@@ -3427,6 +3640,9 @@ function structureFieldTypeWithArray(baseType: BasicType, array: boolean): Struc
 
 function arrayItemType(type: FieldType | StructureFieldType): BasicType | 'json' {
     if (type === 'json[]') {
+        return 'json';
+    }
+    if (type === KV_PAIR_FIELD_TYPE) {
         return 'json';
     }
     return type.replace('[]', '') as BasicType;
@@ -3472,6 +3688,55 @@ function compactNumberConstraint(
 
 function isNumberConstraintKind(value: unknown): value is NumberConstraintKind {
     return NUMBER_CONSTRAINT_KINDS.includes(value as NumberConstraintKind);
+}
+
+function normalizedBasicType(value: unknown): BasicType {
+    return BASIC_TYPES.includes(value as BasicType) ? value as BasicType : 'string';
+}
+
+function kvPairMemberType(field: FieldSchema | StructureFieldSchema, member: KvPairMember): BasicType {
+    return normalizedBasicType(member === 'key' ? field.keyType : field.valueType);
+}
+
+function setKvPairMemberType(field: FieldSchema | StructureFieldSchema, member: KvPairMember, type: BasicType): void {
+    if (member === 'key') {
+        field.keyType = type;
+    } else {
+        field.valueType = type;
+    }
+}
+
+function kvPairMemberNumberConstraint(field: FieldSchema | StructureFieldSchema, member: KvPairMember): NumberConstraintSchema | undefined {
+    const type = kvPairMemberType(field, member);
+    const constraint = member === 'key' ? field.keyNumberConstraint : field.valueNumberConstraint;
+    return normalizedNumberConstraint(type, constraint);
+}
+
+function setKvPairMemberNumberConstraint(
+    field: FieldSchema | StructureFieldSchema,
+    member: KvPairMember,
+    constraint: NumberConstraintSchema | undefined
+): void {
+    const normalizedConstraint = normalizedNumberConstraint(kvPairMemberType(field, member), constraint);
+    if (member === 'key') {
+        field.keyNumberConstraint = normalizedConstraint;
+    } else {
+        field.valueNumberConstraint = normalizedConstraint;
+    }
+}
+
+function kvPairMemberTarget(field: FieldSchema | StructureFieldSchema, member: KvPairMember): NumberConstraintTarget {
+    return {
+        get type() {
+            return kvPairMemberType(field, member);
+        },
+        get numberConstraint() {
+            return kvPairMemberNumberConstraint(field, member);
+        },
+        set numberConstraint(constraint) {
+            setKvPairMemberNumberConstraint(field, member, constraint);
+        }
+    };
 }
 
 function optionalNumber(value: unknown): number | undefined {
@@ -3526,6 +3791,27 @@ function defaultArrayItem(type: FieldType | StructureFieldType, structure?: Stru
     return basicStringToValue(defaultCellValue(itemType), itemType);
 }
 
+function defaultKvPair(field: FieldSchema | StructureFieldSchema): KvPairValue {
+    const keyType = kvPairMemberType(field, 'key');
+    const valueType = kvPairMemberType(field, 'value');
+    return {
+        key: basicStringToValue(defaultCellValue(keyType), keyType),
+        value: basicStringToValue(defaultCellValue(valueType), valueType)
+    };
+}
+
+function asKvPair(value: unknown, field: FieldSchema | StructureFieldSchema): KvPairValue {
+    const fallback = defaultKvPair(field);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return fallback;
+    }
+    const record = value as Record<string, unknown>;
+    return {
+        key: unknownToBasicValue(record.key, kvPairMemberType(field, 'key')),
+        value: unknownToBasicValue(record.value, kvPairMemberType(field, 'value'))
+    };
+}
+
 function defaultStructureObject(structure: StructureState): Record<string, unknown> {
     return Object.fromEntries(structure.fields.map((field) => [
         field.key,
@@ -3536,14 +3822,18 @@ function defaultStructureObject(structure: StructureState): Record<string, unkno
 function cloneFieldSchema(field: FieldSchema): FieldSchema {
     return {
         ...field,
-        numberConstraint: cloneNumberConstraint(field.numberConstraint)
+        numberConstraint: cloneNumberConstraint(field.numberConstraint),
+        keyNumberConstraint: cloneNumberConstraint(field.keyNumberConstraint),
+        valueNumberConstraint: cloneNumberConstraint(field.valueNumberConstraint)
     };
 }
 
 function cloneStructureFieldSchema(field: StructureFieldSchema): StructureFieldSchema {
     return {
         ...field,
-        numberConstraint: cloneNumberConstraint(field.numberConstraint)
+        numberConstraint: cloneNumberConstraint(field.numberConstraint),
+        keyNumberConstraint: cloneNumberConstraint(field.keyNumberConstraint),
+        valueNumberConstraint: cloneNumberConstraint(field.valueNumberConstraint)
     };
 }
 
@@ -3560,18 +3850,42 @@ function cloneRow(row: CsvRow): CsvRow {
 }
 
 function sameFieldSchema(left: FieldSchema, right: FieldSchema): boolean {
-    return left.key === right.key
-        && left.type === right.type
-        && left.description === right.description
-        && (left.structure ?? '') === (right.structure ?? '')
-        && sameNumberConstraint(left.type, left.numberConstraint, right.type, right.numberConstraint);
+    if (left.key !== right.key
+        || left.type !== right.type
+        || left.description !== right.description
+        || (left.structure ?? '') !== (right.structure ?? '')) {
+        return false;
+    }
+
+    if (isKvPairField(left) || isKvPairField(right)) {
+        return isKvPairField(left)
+            && isKvPairField(right)
+            && kvPairMemberType(left, 'key') === kvPairMemberType(right, 'key')
+            && kvPairMemberType(left, 'value') === kvPairMemberType(right, 'value')
+            && sameNumberConstraint(kvPairMemberType(left, 'key'), left.keyNumberConstraint, kvPairMemberType(right, 'key'), right.keyNumberConstraint)
+            && sameNumberConstraint(kvPairMemberType(left, 'value'), left.valueNumberConstraint, kvPairMemberType(right, 'value'), right.valueNumberConstraint);
+    }
+
+    return sameNumberConstraint(left.type, left.numberConstraint, right.type, right.numberConstraint);
 }
 
 function sameStructureFieldSchema(left: StructureFieldSchema, right: StructureFieldSchema): boolean {
-    return left.key === right.key
-        && left.type === right.type
-        && left.description === right.description
-        && sameNumberConstraint(left.type, left.numberConstraint, right.type, right.numberConstraint);
+    if (left.key !== right.key
+        || left.type !== right.type
+        || left.description !== right.description) {
+        return false;
+    }
+
+    if (isKvPairField(left) || isKvPairField(right)) {
+        return isKvPairField(left)
+            && isKvPairField(right)
+            && kvPairMemberType(left, 'key') === kvPairMemberType(right, 'key')
+            && kvPairMemberType(left, 'value') === kvPairMemberType(right, 'value')
+            && sameNumberConstraint(kvPairMemberType(left, 'key'), left.keyNumberConstraint, kvPairMemberType(right, 'key'), right.keyNumberConstraint)
+            && sameNumberConstraint(kvPairMemberType(left, 'value'), left.valueNumberConstraint, kvPairMemberType(right, 'value'), right.valueNumberConstraint);
+    }
+
+    return sameNumberConstraint(left.type, left.numberConstraint, right.type, right.numberConstraint);
 }
 
 function sameEnumValueSchema(left: EnumValueSchema, right: EnumValueSchema): boolean {
@@ -3619,9 +3933,20 @@ function basicStringToValue(value: string, type: BasicType): string | number | b
     return value;
 }
 
+function unknownToBasicValue(value: unknown, type: BasicType): string | number | boolean {
+    if (type === 'boolean') {
+        return value === true || value === 'true';
+    }
+    if (type === 'number') {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? numberValue : 0;
+    }
+    return value === undefined || value === null ? '' : String(value);
+}
+
 function validateNumberConstraintValue(
     value: number,
-    field: FieldSchema | StructureFieldSchema,
+    field: NumberConstraintTarget,
     enumResolver?: EnumResolver
 ): string | undefined {
     const constraint = normalizedNumberConstraint(field.type, field.numberConstraint);
@@ -3661,6 +3986,18 @@ function validateCellValue(value: string, field: FieldSchema, structure?: Struct
 
     if (field.type === 'boolean' && value !== 'true' && value !== 'false') {
         return '必须是 true 或 false。';
+    }
+
+    if (isKvPairField(field)) {
+        const parsed = parseJsonValue(value);
+        if (!Array.isArray(parsed)) {
+            return '必须是 KV Pairs 数组 JSON。';
+        }
+        const invalidPair = parsed.find((item) => validateKvPairValue(item, field, enumResolver));
+        if (invalidPair !== undefined) {
+            return validateKvPairValue(invalidPair, field, enumResolver);
+        }
+        return undefined;
     }
 
     if (field.type === 'json') {
@@ -3723,6 +4060,17 @@ function validateStructureValue(value: unknown, structure: StructureState, enumR
     const objectValue = value as Record<string, unknown>;
     for (const field of structure.fields) {
         const fieldValue = objectValue[field.key];
+        if (isKvPairField(field)) {
+            const arrayValue = Array.isArray(fieldValue) ? fieldValue : undefined;
+            if (!arrayValue) {
+                return `${field.key} 必须是数组。`;
+            }
+            const invalidPair = arrayValue.find((item) => validateKvPairValue(item, field, enumResolver));
+            if (invalidPair !== undefined) {
+                return `${field.key} ${validateKvPairValue(invalidPair, field, enumResolver)}`;
+            }
+            continue;
+        }
         if (isArrayField(field.type)) {
             const arrayValue = Array.isArray(fieldValue) ? fieldValue : undefined;
             if (!arrayValue) {
@@ -3766,6 +4114,35 @@ function validateStructureValue(value: unknown, structure: StructureState, enumR
     return undefined;
 }
 
+function validateKvPairValue(value: unknown, field: FieldSchema | StructureFieldSchema, enumResolver?: EnumResolver): string | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return '必须是 Key/Value 对象。';
+    }
+
+    const pair = value as Record<string, unknown>;
+    for (const member of ['key', 'value'] as const) {
+        const memberType = kvPairMemberType(field, member);
+        const memberValue = pair[member];
+        if (memberType === 'number') {
+            if (typeof memberValue !== 'number' || !Number.isFinite(memberValue)) {
+                return `${member} 必须是数字。`;
+            }
+            const numberError = validateNumberConstraintValue(memberValue, kvPairMemberTarget(field, member), enumResolver);
+            if (numberError) {
+                return `${member} ${numberError}`;
+            }
+        }
+        if (memberType === 'string' && typeof memberValue !== 'string') {
+            return `${member} 必须是字符串。`;
+        }
+        if (memberType === 'boolean' && typeof memberValue !== 'boolean') {
+            return `${member} 必须是布尔值。`;
+        }
+    }
+
+    return undefined;
+}
+
 function parseJsonError(value: string): string | undefined {
     try {
         JSON.parse(value);
@@ -3787,7 +4164,7 @@ function defaultCellValue(type: FieldType | StructureFieldType | BasicType | 'js
     if (type === 'boolean') {
         return 'false';
     }
-    if (type === 'number[]' || type === 'string[]' || type === 'boolean[]' || type === 'json[]') {
+    if (type === 'number[]' || type === 'string[]' || type === 'boolean[]' || type === 'json[]' || type === KV_PAIR_FIELD_TYPE) {
         return '[]';
     }
     if (type === 'json') {

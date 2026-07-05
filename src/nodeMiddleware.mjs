@@ -2,8 +2,9 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { generateConfigCodeFromDirectory } from './codegen.mjs';
 
-const fieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'json', 'json[]']);
-const structureFieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]']);
+const fieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'json', 'json[]', 'kvPairs']);
+const basicTypes = new Set(['string', 'number', 'boolean']);
+const structureFieldTypes = new Set(['string', 'number', 'boolean', 'number[]', 'string[]', 'boolean[]', 'kvPairs']);
 const numberConstraintKinds = new Set(['number', 'reference', 'enum']);
 const requiredCsvFields = ['id', 'name'];
 
@@ -266,10 +267,24 @@ function normalizeFields(fields) {
             type,
             description: requiredFieldDescription(key) ?? stringValue(field.description)
         };
+        if (type === 'kvPairs') {
+            const keyType = normalizeBasicType(field.keyType);
+            const valueType = normalizeBasicType(field.valueType);
+            nextField.keyType = keyType;
+            nextField.valueType = valueType;
+            const keyNumberConstraint = normalizeNumberConstraint(keyType, field.keyNumberConstraint);
+            const valueNumberConstraint = normalizeNumberConstraint(valueType, field.valueNumberConstraint);
+            if (keyNumberConstraint) {
+                nextField.keyNumberConstraint = keyNumberConstraint;
+            }
+            if (valueNumberConstraint) {
+                nextField.valueNumberConstraint = valueNumberConstraint;
+            }
+        }
         if (structure) {
             nextField.structure = structure;
         }
-        if (numberConstraint) {
+        if (numberConstraint && type !== 'kvPairs') {
             nextField.numberConstraint = numberConstraint;
         }
         return nextField;
@@ -320,7 +335,20 @@ function normalizeStructures(structures) {
                     type,
                     description: stringValue(field.description)
                 };
-                if (numberConstraint) {
+                if (type === 'kvPairs') {
+                    const keyType = normalizeBasicType(field.keyType);
+                    const valueType = normalizeBasicType(field.valueType);
+                    nextField.keyType = keyType;
+                    nextField.valueType = valueType;
+                    const keyNumberConstraint = normalizeNumberConstraint(keyType, field.keyNumberConstraint);
+                    const valueNumberConstraint = normalizeNumberConstraint(valueType, field.valueNumberConstraint);
+                    if (keyNumberConstraint) {
+                        nextField.keyNumberConstraint = keyNumberConstraint;
+                    }
+                    if (valueNumberConstraint) {
+                        nextField.valueNumberConstraint = valueNumberConstraint;
+                    }
+                } else if (numberConstraint) {
                     nextField.numberConstraint = numberConstraint;
                 }
                 return nextField;
@@ -425,8 +453,12 @@ function fieldsForTable(schema, moduleKey, configPath, headers, rows) {
                 key: stringValue(field.key).trim(),
                 type,
                 description: stringValue(field.description),
-                structure: stringValue(field.structure).trim() || undefined,
-                numberConstraint: normalizeNumberConstraint(type, field.numberConstraint)
+                structure: type === 'kvPairs' ? undefined : stringValue(field.structure).trim() || undefined,
+                numberConstraint: type === 'kvPairs' ? undefined : normalizeNumberConstraint(type, field.numberConstraint),
+                keyType: type === 'kvPairs' ? normalizeBasicType(field.keyType) : undefined,
+                valueType: type === 'kvPairs' ? normalizeBasicType(field.valueType) : undefined,
+                keyNumberConstraint: type === 'kvPairs' ? normalizeNumberConstraint(normalizeBasicType(field.keyType), field.keyNumberConstraint) : undefined,
+                valueNumberConstraint: type === 'kvPairs' ? normalizeNumberConstraint(normalizeBasicType(field.valueType), field.valueNumberConstraint) : undefined
             };
         })
         .filter((field) => field.key);
@@ -523,7 +555,14 @@ function normalizeNumberConstraint(type, constraint) {
     return enumKey ? { kind, enum: enumKey } : { kind };
 }
 
+function normalizeBasicType(type) {
+    return basicTypes.has(type) ? type : 'string';
+}
+
 function baseFieldType(type) {
+    if (type === 'kvPairs') {
+        return type;
+    }
     return stringValue(type).replace('[]', '');
 }
 
